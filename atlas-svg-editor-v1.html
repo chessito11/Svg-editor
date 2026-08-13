@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+<title>Atlas SVG Editor</title>
+<style>
+  :root{
+    --bg:#f3f4f6; --panel:#ffffff; --ink:#111827; --muted:#6b7280; --line:#d1d5db;
+    --accent:#2563eb; --danger:#b91c1c; --shadow:0 8px 24px rgba(0,0,0,.08);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);height:100vh;overflow:hidden}
+  button,input,select{font:inherit}
+  .app{display:grid;grid-template-rows:auto 1fr auto;height:100vh}
+  .topbar{display:flex;gap:8px;align-items:center;padding:8px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto;white-space:nowrap}
+  .brand{font-weight:800;margin-right:6px}
+  .btn,.tool{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 11px;cursor:pointer;min-width:42px}
+  .btn:hover,.tool:hover{background:#f9fafb}
+  .tool.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn.danger{color:var(--danger)}
+  .main{display:grid;grid-template-columns:78px 1fr 270px;min-height:0}
+  .tools{background:var(--panel);border-right:1px solid var(--line);padding:8px;display:flex;flex-direction:column;gap:7px;overflow:auto}
+  .tool{padding:10px 6px;font-size:12px}
+  .canvasWrap{position:relative;overflow:hidden;background:
+    linear-gradient(#e5e7eb 1px, transparent 1px),
+    linear-gradient(90deg,#e5e7eb 1px, transparent 1px);
+    background-size:20px 20px;
+    touch-action:none;
+  }
+  #svg{width:100%;height:100%;display:block;user-select:none}
+  .panel{background:var(--panel);border-left:1px solid var(--line);padding:12px;overflow:auto}
+  .panel h3{margin:4px 0 12px;font-size:15px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  .field{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}
+  .field label{font-size:12px;color:var(--muted)}
+  .field input,.field select{width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .bottom{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#fff;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+  .spacer{flex:1}
+  .selection{stroke:#2563eb!important;stroke-width:2!important;stroke-dasharray:6 4;vector-effect:non-scaling-stroke}
+  .hint{font-size:12px;color:var(--muted);line-height:1.4}
+  .hidden{display:none}
+  @media(max-width:900px){
+    .main{grid-template-columns:66px 1fr}
+    .panel{position:absolute;right:8px;top:62px;bottom:46px;width:min(300px,78vw);z-index:5;box-shadow:var(--shadow);border:1px solid var(--line);border-radius:12px}
+    .panel.mobileHidden{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand">Atlas SVG</div>
+    <button class="btn" id="newBtn">New</button>
+    <button class="btn" id="openBtn">Import SVG</button>
+    <input id="fileInput" type="file" accept=".svg,image/svg+xml" class="hidden">
+    <button class="btn" id="saveBtn">Download SVG</button>
+    <button class="btn" id="undoBtn">↶ Undo</button>
+    <button class="btn" id="redoBtn">↷ Redo</button>
+    <button class="btn danger" id="deleteBtn">Delete</button>
+    <button class="btn" id="panelBtn">Properties</button>
+  </div>
+
+  <div class="main">
+    <div class="tools">
+      <button class="tool active" data-tool="select">Select</button>
+      <button class="tool" data-tool="pan">Pan</button>
+      <button class="tool" data-tool="line">Line</button>
+      <button class="tool" data-tool="rect">Rect</button>
+      <button class="tool" data-tool="circle">Circle</button>
+      <button class="tool" data-tool="arrow">Arrow</button>
+      <button class="tool" data-tool="text">Text</button>
+      <button class="tool" data-tool="free">Freehand</button>
+    </div>
+
+    <div class="canvasWrap" id="canvasWrap">
+      <svg id="svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800">
+        <defs>
+          <marker id="arrowHead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+            <polygon points="0 0, 10 3.5, 0 7" fill="context-stroke"></polygon>
+          </marker>
+        </defs>
+        <g id="viewport">
+          <g id="drawing"></g>
+        </g>
+      </svg>
+    </div>
+
+    <div class="panel" id="panel">
+      <h3>Properties</h3>
+      <div class="field">
+        <label>Stroke color</label>
+        <input type="color" id="strokeColor" value="#111827">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Stroke width</label>
+          <input type="number" id="strokeWidth" value="3" min="1" max="30">
+        </div>
+        <div class="field">
+          <label>Opacity</label>
+          <input type="number" id="opacity" value="1" min="0.1" max="1" step="0.1">
+        </div>
+      </div>
+      <div class="field">
+        <label>Fill</label>
+        <select id="fillMode">
+          <option value="none">None</option>
+          <option value="color">Color</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Fill color</label>
+        <input type="color" id="fillColor" value="#ffffff">
+      </div>
+      <div class="field">
+        <label>Line style</label>
+        <select id="dashStyle">
+          <option value="">Solid</option>
+          <option value="8 6">Dashed</option>
+          <option value="2 6">Dotted</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Text size</label>
+        <input type="number" id="fontSize" value="28" min="8" max="120">
+      </div>
+      <div class="row">
+        <button class="btn" id="frontBtn">Bring front</button>
+        <button class="btn" id="backBtn">Send back</button>
+      </div>
+      <div class="row">
+        <button class="btn" id="duplicateBtn">Duplicate</button>
+        <button class="btn" id="clearBtn">Clear all</button>
+      </div>
+      <p class="hint">Tip: use Select to move objects. On touch devices, drag with one finger. Use Pan to move around the page.</p>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <span id="status">Ready</span>
+    <span class="spacer"></span>
+    <button class="btn" id="zoomOut">−</button>
+    <span id="zoomLabel">100%</span>
+    <button class="btn" id="zoomIn">+</button>
+    <button class="btn" id="zoomReset">Reset</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const svg = document.getElementById('svg');
+  const drawing = document.getElementById('drawing');
+  const viewport = document.getElementById('viewport');
+  const wrap = document.getElementById('canvasWrap');
+  const statusEl = document.getElementById('status');
+  const zoomLabel = document.getElementById('zoomLabel');
+  const panel = document.getElementById('panel');
+
+  let tool = 'select';
+  let selected = null;
+  let isDown = false;
+  let start = null;
+  let current = null;
+  let dragStartTransform = null;
+  let freePoints = [];
+  let scale = 1, panX = 0, panY = 0;
+
+  let history = [];
+  let future = [];
+
+  const styleControls = {
+    stroke: document.getElementById('strokeColor'),
+    width: document.getElementById('strokeWidth'),
+    opacity: document.getElementById('opacity'),
+    fillMode: document.getElementById('fillMode'),
+    fill: document.getElementById('fillColor'),
+    dash: document.getElementById('dashStyle'),
+    fontSize: document.getElementById('fontSize')
+  };
+
+  const escapeHtml = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+
+  function saveState(){
+    history.push(drawing.innerHTML);
+    if(history.length > 60) history.shift();
+    future = [];
+  }
+  function restore(html){
+    clearSelection();
+    drawing.innerHTML = html;
+  }
+  function undo(){
+    if(history.length < 2) return;
+    future.push(history.pop());
+    restore(history[history.length-1]);
+  }
+  function redo(){
+    if(!future.length) return;
+    const s = future.pop();
+    history.push(s);
+    restore(s);
+  }
+
+  function screenToSvg(evt){
+    const pt = svg.createSVGPoint();
+    pt.x = evt.clientX; pt.y = evt.clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    return {x:(p.x-panX)/scale, y:(p.y-panY)/scale};
+  }
+
+  function applyViewport(){
+    viewport.setAttribute('transform', `translate(${panX} ${panY}) scale(${scale})`);
+    zoomLabel.textContent = Math.round(scale*100)+'%';
+  }
+
+  function baseStyle(el, fillAllowed=true){
+    el.setAttribute('stroke', styleControls.stroke.value);
+    el.setAttribute('stroke-width', styleControls.width.value);
+    el.setAttribute('opacity', styleControls.opacity.value);
+    el.setAttribute('stroke-linecap','round');
+    el.setAttribute('stroke-linejoin','round');
+    el.setAttribute('vector-effect','non-scaling-stroke');
+    el.setAttribute('stroke-dasharray', styleControls.dash.value);
+    if(fillAllowed){
+      el.setAttribute('fill', styleControls.fillMode.value === 'color' ? styleControls.fill.value : 'none');
+    } else el.setAttribute('fill','none');
+  }
+
+  function updateSelectedStyle(){
+    if(!selected) return;
+    const tag = selected.tagName.toLowerCase();
+    selected.setAttribute('stroke', styleControls.stroke.value);
+    selected.setAttribute('stroke-width', styleControls.width.value);
+    selected.setAttribute('opacity', styleControls.opacity.value);
+    selected.setAttribute('stroke-dasharray', styleControls.dash.value);
+    if(['rect','circle','ellipse','polygon','path'].includes(tag) && !selected.dataset.free){
+      selected.setAttribute('fill', styleControls.fillMode.value === 'color' ? styleControls.fill.value : 'none');
+    }
+    if(tag === 'text'){
+      selected.setAttribute('fill', styleControls.stroke.value);
+      selected.setAttribute('stroke','none');
+      selected.setAttribute('font-size', styleControls.fontSize.value);
+    }
+    saveState();
+  }
+
+  Object.values(styleControls).forEach(c => c.addEventListener('change', updateSelectedStyle));
+
+  function clearSelection(){
+    if(selected) selected.classList.remove('selection');
+    selected = null;
+  }
+  function select(el){
+    clearSelection();
+    selected = el;
+    selected.classList.add('selection');
+  }
+
+  function create(tag, attrs={}){
+    const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for(const [k,v] of Object.entries(attrs)) el.setAttribute(k,v);
+    return el;
+  }
+
+  function beginShape(p){
+    if(tool === 'line' || tool === 'arrow'){
+      current = create('line',{x1:p.x,y1:p.y,x2:p.x,y2:p.y});
+      baseStyle(current,false);
+      if(tool === 'arrow') current.setAttribute('marker-end','url(#arrowHead)');
+    } else if(tool === 'rect'){
+      current = create('rect',{x:p.x,y:p.y,width:0,height:0,rx:2});
+      baseStyle(current,true);
+    } else if(tool === 'circle'){
+      current = create('circle',{cx:p.x,cy:p.y,r:0});
+      baseStyle(current,true);
+    } else if(tool === 'free'){
+      current = create('path');
+      current.dataset.free='1';
+      baseStyle(current,false);
+      freePoints=[p];
+      current.setAttribute('d',`M ${p.x} ${p.y}`);
+    }
+    if(current) drawing.appendChild(current);
+  }
+
+  function updateShape(p){
+    if(!current || !start) return;
+    if(tool === 'line' || tool === 'arrow'){
+      current.setAttribute('x2',p.x); current.setAttribute('y2',p.y);
+    } else if(tool === 'rect'){
+      current.setAttribute('x',Math.min(start.x,p.x));
+      current.setAttribute('y',Math.min(start.y,p.y));
+      current.setAttribute('width',Math.abs(p.x-start.x));
+      current.setAttribute('height',Math.abs(p.y-start.y));
+    } else if(tool === 'circle'){
+      current.setAttribute('r',Math.hypot(p.x-start.x,p.y-start.y));
+    } else if(tool === 'free'){
+      freePoints.push(p);
+      current.setAttribute('d', freePoints.map((q,i)=>(i?'L':'M')+` ${q.x} ${q.y}`).join(' '));
+    }
+  }
+
+  function transformTranslate(el, dx, dy){
+    const base = dragStartTransform || '';
+    el.setAttribute('transform', `${base} translate(${dx} ${dy})`);
+  }
+
+  svg.addEventListener('pointerdown', e => {
+    if(e.target.closest('defs')) return;
+    svg.setPointerCapture(e.pointerId);
+    isDown = true;
+    start = screenToSvg(e);
+
+    if(tool === 'select'){
+      if(e.target !== svg && e.target !== viewport && e.target !== drawing){
+        select(e.target);
+        dragStartTransform = selected.getAttribute('transform') || '';
+        statusEl.textContent = 'Moving selection';
+      } else {
+        clearSelection();
+      }
+    } else if(tool === 'pan'){
+      start = {x:e.clientX,y:e.clientY,panX,panY};
+    } else if(tool === 'text'){
+      const text = prompt('Text:');
+      if(text){
+        const el = create('text',{x:start.x,y:start.y});
+        el.textContent = text;
+        el.setAttribute('fill',styleControls.stroke.value);
+        el.setAttribute('font-size',styleControls.fontSize.value);
+        el.setAttribute('font-family','system-ui, sans-serif');
+        drawing.appendChild(el);
+        saveState();
+        select(el);
+      }
+      isDown=false;
+    } else {
+      beginShape(start);
+    }
+  });
+
+  svg.addEventListener('pointermove', e => {
+    if(!isDown) return;
+    if(tool === 'pan'){
+      panX = start.panX + (e.clientX-start.x);
+      panY = start.panY + (e.clientY-start.y);
+      applyViewport();
+      return;
+    }
+    const p = screenToSvg(e);
+    if(tool === 'select' && selected){
+      transformTranslate(selected,p.x-start.x,p.y-start.y);
+    } else updateShape(p);
+  });
+
+  svg.addEventListener('pointerup', e => {
+    if(!isDown) return;
+    isDown=false;
+    if(current){
+      select(current);
+      current=null;
+      saveState();
+    } else if(tool === 'select' && selected){
+      saveState();
+    }
+    statusEl.textContent='Ready';
+  });
+
+  document.querySelectorAll('.tool').forEach(btn => btn.addEventListener('click',()=>{
+    tool=btn.dataset.tool;
+    document.querySelectorAll('.tool').forEach(b=>b.classList.toggle('active',b===btn));
+    statusEl.textContent='Tool: '+btn.textContent;
+  }));
+
+  function removeSelected(){
+    if(selected){ selected.remove(); selected=null; saveState(); }
+  }
+  document.getElementById('deleteBtn').onclick = removeSelected;
+
+  document.addEventListener('keydown', e=>{
+    if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z'){ e.preventDefault(); e.shiftKey?redo():undo(); }
+    if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='y'){ e.preventDefault(); redo(); }
+    if(e.key==='Delete'||e.key==='Backspace'){ if(selected && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){e.preventDefault();removeSelected();}}
+  });
+
+  document.getElementById('undoBtn').onclick=undo;
+  document.getElementById('redoBtn').onclick=redo;
+
+  document.getElementById('duplicateBtn').onclick=()=>{
+    if(!selected) return;
+    const c=selected.cloneNode(true);
+    c.classList.remove('selection');
+    const old=c.getAttribute('transform')||'';
+    c.setAttribute('transform', old+' translate(20 20)');
+    drawing.appendChild(c);
+    select(c); saveState();
+  };
+  document.getElementById('frontBtn').onclick=()=>{if(selected){drawing.appendChild(selected);saveState();}};
+  document.getElementById('backBtn').onclick=()=>{if(selected){drawing.insertBefore(selected,drawing.firstChild);saveState();}};
+  document.getElementById('clearBtn').onclick=()=>{
+    if(confirm('Clear the entire drawing?')){drawing.innerHTML='';clearSelection();saveState();}
+  };
+
+  document.getElementById('newBtn').onclick=()=>{
+    if(confirm('Start a new drawing?')){drawing.innerHTML='';clearSelection();scale=1;panX=panY=0;applyViewport();saveState();}
+  };
+
+  document.getElementById('openBtn').onclick=()=>document.getElementById('fileInput').click();
+  document.getElementById('fileInput').addEventListener('change', async e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const txt=await f.text();
+    const parser=new DOMParser();
+    const doc=parser.parseFromString(txt,'image/svg+xml');
+    const src=doc.documentElement;
+    if(src.nodeName.toLowerCase()!=='svg'){alert('That file is not a valid SVG.');return;}
+    drawing.innerHTML='';
+    [...src.childNodes].forEach(n=>{
+      if(n.nodeType===1 && n.nodeName.toLowerCase()==='defs') return;
+      if(n.nodeType===1 || n.nodeType===3) drawing.appendChild(document.importNode(n,true));
+    });
+    const vb=src.getAttribute('viewBox');
+    if(vb) svg.setAttribute('viewBox',vb);
+    saveState();
+    e.target.value='';
+  });
+
+  document.getElementById('saveBtn').onclick=()=>{
+    clearSelection();
+    const exportSvg = svg.cloneNode(true);
+    exportSvg.querySelector('#viewport').setAttribute('transform','');
+    const content = exportSvg.outerHTML;
+    const blob=new Blob([content],{type:'image/svg+xml'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='atlas-drawing.svg';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  };
+
+  function zoom(mult){
+    scale=Math.min(5,Math.max(.2,scale*mult));
+    applyViewport();
+  }
+  document.getElementById('zoomIn').onclick=()=>zoom(1.2);
+  document.getElementById('zoomOut').onclick=()=>zoom(1/1.2);
+  document.getElementById('zoomReset').onclick=()=>{scale=1;panX=panY=0;applyViewport();};
+
+  wrap.addEventListener('wheel',e=>{
+    if(e.ctrlKey || e.metaKey){
+      e.preventDefault();
+      zoom(e.deltaY<0?1.1:1/1.1);
+    }
+  },{passive:false});
+
+  document.getElementById('panelBtn').onclick=()=>panel.classList.toggle('mobileHidden');
+  if(window.innerWidth<900) panel.classList.add('mobileHidden');
+
+  saveState();
+  applyViewport();
+})();
+</script>
+</body>
+</html>
