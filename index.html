@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Atlas SVG Editor</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:Arial,Helvetica,sans-serif;background:#eef1f5;color:#1f2937}body{overflow:hidden}
+#app{height:100vh;display:flex;flex-direction:column}header{height:54px;background:#fff;border-bottom:1px solid #d1d5db;display:flex;align-items:center;gap:8px;padding:8px;overflow-x:auto;white-space:nowrap}
+header strong{margin-right:8px}button{border:1px solid #cfd4dc;background:#fff;border-radius:8px;padding:8px 10px;font-size:14px}button.active{background:#2563eb;color:#fff;border-color:#2563eb}button.primary{background:#2563eb;color:#fff;border-color:#2563eb}
+main{flex:1;min-height:0;display:flex}#tools{width:72px;background:#fff;border-right:1px solid #d1d5db;padding:8px;display:flex;flex-direction:column;gap:7px;overflow-y:auto}#tools button{font-size:12px;padding:10px 4px}
+#workspace{flex:1;position:relative;background:linear-gradient(#e5e7eb 1px,transparent 1px),linear-gradient(90deg,#e5e7eb 1px,transparent 1px);background-size:20px 20px;touch-action:none}
+#canvas{display:block;width:100%;height:100%;touch-action:none}#panel{width:240px;background:#fff;border-left:1px solid #d1d5db;padding:12px;overflow-y:auto}
+label{display:block;font-size:12px;color:#6b7280;margin-top:10px;margin-bottom:4px}input,select{width:100%;padding:7px;border:1px solid #d1d5db;border-radius:7px;background:#fff}
+footer{height:42px;background:#fff;border-top:1px solid #d1d5db;display:flex;align-items:center;padding:6px 10px;gap:8px;font-size:12px;color:#6b7280}.spacer{flex:1}
+@media(max-width:850px){#panel{position:absolute;right:8px;top:64px;bottom:50px;width:260px;z-index:10;box-shadow:0 8px 24px rgba(0,0,0,.15);border:1px solid #d1d5db;border-radius:10px}#panel.hidden{display:none}}
+</style>
+</head>
+<body>
+<div id="app">
+<header><strong>Atlas SVG</strong><button id="newBtn">New</button><button id="importBtn">Import SVG</button><input id="fileInput" type="file" accept=".svg,image/svg+xml" hidden><button id="exportBtn" class="primary">Export SVG</button><button id="undoBtn">Undo</button><button id="redoBtn">Redo</button><button id="deleteBtn">Delete</button><button id="propsBtn">Properties</button></header>
+<main>
+<div id="tools"><button data-tool="select" class="active">Select</button><button data-tool="line">Line</button><button data-tool="rect">Rect</button><button data-tool="circle">Circle</button><button data-tool="arrow">Arrow</button><button data-tool="text">Text</button><button data-tool="free">Free</button></div>
+<div id="workspace"><svg id="canvas" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800"><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#111827"></path></marker></defs><g id="drawing"></g></svg></div>
+<aside id="panel"><b>Properties</b><label>Stroke</label><input id="stroke" type="color" value="#111827"><label>Stroke width</label><input id="width" type="number" value="3" min="1" max="20"><label>Fill</label><select id="fillMode"><option value="none">None</option><option value="color">Color</option></select><label>Fill color</label><input id="fill" type="color" value="#ffffff"><label>Text size</label><input id="fontSize" type="number" value="28" min="8" max="100"><label>Line style</label><select id="dash"><option value="">Solid</option><option value="8 6">Dashed</option><option value="2 5">Dotted</option></select></aside>
+</main>
+<footer><span id="status">Ready</span><span class="spacer"></span><span>Safari-safe build</span></footer>
+</div>
+<script>
+(function(){
+var svg=document.getElementById('canvas'),drawing=document.getElementById('drawing'),panel=document.getElementById('panel'),statusEl=document.getElementById('status');
+var tool='select',selected=null,current=null,drawingNow=false,start=null,moveStart=null,history=[],redoStack=[];
+var stroke=document.getElementById('stroke'),width=document.getElementById('width'),fillMode=document.getElementById('fillMode'),fill=document.getElementById('fill'),fontSize=document.getElementById('fontSize'),dash=document.getElementById('dash');
+function save(){var h=drawing.innerHTML;if(history.length===0||history[history.length-1]!==h){history.push(h);if(history.length>50)history.shift();redoStack=[]}}
+function undo(){if(history.length<2)return;redoStack.push(history.pop());drawing.innerHTML=history[history.length-1];selected=null}
+function redo(){if(redoStack.length===0)return;var s=redoStack.pop();history.push(s);drawing.innerHTML=s;selected=null}
+function point(evt){var p=svg.createSVGPoint();p.x=evt.clientX;p.y=evt.clientY;return p.matrixTransform(svg.getScreenCTM().inverse())}
+function make(tag){return document.createElementNS('http://www.w3.org/2000/svg',tag)}
+function style(el,canFill){el.setAttribute('stroke',stroke.value);el.setAttribute('stroke-width',width.value);el.setAttribute('stroke-linecap','round');el.setAttribute('stroke-linejoin','round');el.setAttribute('stroke-dasharray',dash.value);el.setAttribute('fill',canFill?(fillMode.value==='color'?fill.value:'none'):'none')}
+function clearSelection(){selected=null}
+function select(el){selected=el;statusEl.textContent='Selected '+el.tagName}
+var toolButtons=document.querySelectorAll('#tools button');for(var i=0;i<toolButtons.length;i++){toolButtons[i].addEventListener('click',function(){tool=this.getAttribute('data-tool');for(var j=0;j<toolButtons.length;j++)toolButtons[j].classList.remove('active');this.classList.add('active');statusEl.textContent='Tool: '+tool})}
+svg.addEventListener('pointerdown',function(e){
+var p=point(e);start=p;drawingNow=true;
+if(tool==='select'){if(e.target!==svg&&e.target!==drawing){select(e.target);moveStart={x:p.x,y:p.y,tx:0,ty:0};var t=selected.getAttribute('transform')||'',m=t.match(/translate\(([-0-9.]+)[ ,]([-0-9.]+)\)/);if(m){moveStart.tx=parseFloat(m[1]);moveStart.ty=parseFloat(m[2])}}else clearSelection();return}
+if(tool==='text'){var txt=window.prompt('Text:');if(txt){current=make('text');current.setAttribute('x',p.x);current.setAttribute('y',p.y);current.setAttribute('fill',stroke.value);current.setAttribute('font-size',fontSize.value);current.setAttribute('font-family','Arial,Helvetica,sans-serif');current.textContent=txt;drawing.appendChild(current);select(current);save()}drawingNow=false;current=null;return}
+if(tool==='line'||tool==='arrow'){current=make('line');current.setAttribute('x1',p.x);current.setAttribute('y1',p.y);current.setAttribute('x2',p.x);current.setAttribute('y2',p.y);style(current,false);if(tool==='arrow')current.setAttribute('marker-end','url(#arrow)')}
+if(tool==='rect'){current=make('rect');current.setAttribute('x',p.x);current.setAttribute('y',p.y);current.setAttribute('width',0);current.setAttribute('height',0);style(current,true)}
+if(tool==='circle'){current=make('ellipse');current.setAttribute('cx',p.x);current.setAttribute('cy',p.y);current.setAttribute('rx',0);current.setAttribute('ry',0);style(current,true)}
+if(tool==='free'){current=make('path');current._pts=[{x:p.x,y:p.y}];current.setAttribute('d','M '+p.x+' '+p.y);style(current,false)}
+if(current)drawing.appendChild(current)
+});
+svg.addEventListener('pointermove',function(e){
+if(!drawingNow)return;var p=point(e);
+if(tool==='select'&&selected&&moveStart){var dx=p.x-moveStart.x,dy=p.y-moveStart.y;selected.setAttribute('transform','translate('+(moveStart.tx+dx)+' '+(moveStart.ty+dy)+')');return}
+if(!current)return;
+if(tool==='line'||tool==='arrow'){current.setAttribute('x2',p.x);current.setAttribute('y2',p.y)}
+if(tool==='rect'){current.setAttribute('x',Math.min(start.x,p.x));current.setAttribute('y',Math.min(start.y,p.y));current.setAttribute('width',Math.abs(p.x-start.x));current.setAttribute('height',Math.abs(p.y-start.y))}
+if(tool==='circle'){current.setAttribute('cx',(start.x+p.x)/2);current.setAttribute('cy',(start.y+p.y)/2);current.setAttribute('rx',Math.abs(p.x-start.x)/2);current.setAttribute('ry',Math.abs(p.y-start.y)/2)}
+if(tool==='free'){current._pts.push({x:p.x,y:p.y});var d='';for(var k=0;k<current._pts.length;k++)d+=(k===0?'M ':' L ')+current._pts[k].x+' '+current._pts[k].y;current.setAttribute('d',d)}
+});
+svg.addEventListener('pointerup',function(){if(!drawingNow)return;drawingNow=false;if(current){select(current);current=null;save()}else if(tool==='select'&&selected)save();moveStart=null});
+function applyProps(){if(!selected)return;var tag=selected.tagName.toLowerCase();if(tag==='text'){selected.setAttribute('fill',stroke.value);selected.setAttribute('font-size',fontSize.value)}else{selected.setAttribute('stroke',stroke.value);selected.setAttribute('stroke-width',width.value);selected.setAttribute('stroke-dasharray',dash.value);if(tag==='rect'||tag==='ellipse'||tag==='path')selected.setAttribute('fill',fillMode.value==='color'?fill.value:'none')}save()}
+[stroke,width,fillMode,fill,fontSize,dash].forEach(function(x){x.addEventListener('change',applyProps)});
+document.getElementById('deleteBtn').addEventListener('click',function(){if(selected){selected.parentNode.removeChild(selected);selected=null;save()}});
+document.getElementById('undoBtn').addEventListener('click',undo);document.getElementById('redoBtn').addEventListener('click',redo);
+document.getElementById('newBtn').addEventListener('click',function(){if(window.confirm('Clear drawing?')){drawing.innerHTML='';selected=null;save()}});
+document.getElementById('propsBtn').addEventListener('click',function(){panel.classList.toggle('hidden')});
+document.getElementById('importBtn').addEventListener('click',function(){document.getElementById('fileInput').click()});
+document.getElementById('fileInput').addEventListener('change',function(e){var f=e.target.files[0];if(!f)return;var reader=new FileReader();reader.onload=function(){try{var doc=new DOMParser().parseFromString(reader.result,'image/svg+xml'),root=doc.documentElement;drawing.innerHTML='';for(var i=0;i<root.childNodes.length;i++){var n=root.childNodes[i];if(n.nodeType===1&&n.nodeName.toLowerCase()!=='defs')drawing.appendChild(document.importNode(n,true))}save();statusEl.textContent='SVG imported'}catch(err){alert('Could not import this SVG.')}};reader.readAsText(f)});
+document.getElementById('exportBtn').addEventListener('click',function(){clearSelection();var clone=svg.cloneNode(true),blob=new Blob([clone.outerHTML],{type:'image/svg+xml'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='atlas-drawing.svg';document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(url)},1000)});
+if(window.innerWidth<850)panel.classList.add('hidden');save();
+})();
+</script>
+</body>
+</html>
